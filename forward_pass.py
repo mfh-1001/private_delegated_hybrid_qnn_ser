@@ -1,11 +1,15 @@
 import torch
 from torch import nn
+import numpy as np
 from utils.utils import create_qnn, PrivateQNN
 from qiskit_machine_learning.connectors import TorchConnector
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 NUM_CLASSES = 5
+
+torch.manual_seed(10)
+np.random.seed(42)
 
 class CNN_QNN(nn.Module):
     """
@@ -71,22 +75,30 @@ class CNN_QNN(nn.Module):
 
 class PrivateCNN_QNN(CNN_QNN):
 
-    def __init__(self, num_classes:int, device, for_summary=False):
+    def __init__(self, num_classes:int, device, for_summary=False, n_shots:int=int(1e5), test_mode: bool = False, verbose: bool = True):
         super().__init__(num_classes, device)
+        self.n_shots = n_shots
+        self.test_mode = test_mode
+        self.verbose = verbose
 
     def replace_qnn(self):
-        self.qnn = PrivateQNN(self.qnn.weight.detach().clone(), 4)
+        FEATURE_DIMENSION = 4
+        N_QUBITS_VERIF = 4
+        self.qnn = PrivateQNN(self.qnn.weight.detach().clone(), FEATURE_DIMENSION, N_QUBITS_VERIF, self.n_shots, self.test_mode, self.verbose)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+n_shots = int(1e3)
+test_mode = True
+verbose = True
 
-model = PrivateCNN_QNN(num_classes=NUM_CLASSES, device=device)
+model = PrivateCNN_QNN(num_classes=NUM_CLASSES, device=device, n_shots=n_shots, test_mode=test_mode, verbose=verbose)
 checkpoint_path = "models/hybrid_model.pt"
 loaded_state = torch.load(checkpoint_path, map_location=device)['model_state']
 model.load_state_dict(loaded_state)
 
 model.to(device)
-model.replace_qnn()
 
 with torch.no_grad():
     x = torch.randn(5, 1, 64, 129).to(device)
-    print(model(x))
+    model.replace_qnn()
+    print('Model private run result:', model(x))
